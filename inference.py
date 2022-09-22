@@ -1,101 +1,78 @@
-
-import logging
-from torch import nn
-import torch
-import torchvision.models as models
-import os
-from torchvision import transforms
-from PIL import Image
 import json
-import subprocess
+import logging
 import sys
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision.models as models
+import torchvision.transforms as transforms
+from PIL import Image
+import io
+import requests
 
-def install(package):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-install("s3fs")
-
-
-import s3fs
-fs = s3fs.S3FileSystem()
-
-
+#Basic config for logger
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler(sys.stdout))
+
+JPEG_CONTENT_TYPE = 'image/jpeg'
+JSON_CONTENT_TYPE = 'application/json'
+ACCEPTED_CONTENT_TYPE = [ JPEG_CONTENT_TYPE ]
+
+
+logger.info("hany here")
+
 
 def model_fn(model_dir):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    logger.info('Loading the model.')
-    model = models.resnet50(pretrained=False)
-    num_ftrs = model.fc.in_features
-    model.fc = nn.Linear(num_ftrs, 2)
-
-    with open(os.path.join(model_dir, "model.pth"), 'rb') as f:
-        model.load_state_dict(torch.load(f))
-    model.to(device).eval()
+    logger.info('Hany Loading the model.')
+    model = models.resnet50(pretrained=True)
+    for param in model.parameters():
+        param.requires_grad = False
+    print("1")
+    num_features = model.fc.in_features
+    model.fc = nn.Linear(num_features, 133)
+    model.to(device)
+#     model.load_state_dict(torch.load(model_dir + "/model.pth",map_location = device))
+    with open(os.path.join(model_dir, "model.pth"), "rb") as f:
+        logger.info("Starting to load the model...")
+        model.load_state_dict(torch.load(f, map_location = device))
+        logger.info("Successfully loaded the model")
+    
     logger.info('Done loading model')
     return model
 
 
 
 
-
-def input_fn(request_body, content_type='application/json'):
+# Override the default input_fn
+def input_fn(request_body, content_type=JPEG_CONTENT_TYPE):
     logger.info('Deserializing the input data.')
-    if content_type == 'application/json':
-        input_data = json.loads(request_body)
+    # Process an image uploaded to the endpoint
+    logger.info(f'Incoming Requests Content-Type is: {content_type}')
+    logger.info(f'Request body Type is: {type(request_body)}')
+    if content_type in ACCEPTED_CONTENT_TYPE:
+        logger.info(f"Returning an image of type {content_type}" )
+        return Image.open(io.BytesIO(request_body))
+    else:
+        raise Exception(f"Requested an unsupported Content-Type: {content_type}, Accepted Content-Type are: {ACCEPTED_CONTENT_TYPE}")
 
-        for i,url in enumerate(input_data):
-#             url = input_data["url"]
-            logger.info(url)
-            with fs.open(url) as f:
-                image_data = Image.open(f)
-                image_transform = transforms.Compose([
-                    transforms.CenterCrop(size=224),
-                    transforms.ToTensor()
-                ])
-                img = image_transform(image_data).view(1, 3, 224, 224)
-                if i == 0:
-                    imgs = img
-                else:
-                    imgs = torch.cat((imgs, img), 0)
-
-        return imgs
-
-    raise Exception(f'Requested unsupported ContentType in content_type {content_type}')
-
-
-
-
-
-def predict_fn(input_data, model):
-    logger.info('Generating prediction based on input parameters.')
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info('Using ',device)
-    input_data = input_data.to(device)
-    model.to(device)
+# Override the default predict_fn
+def predict_fn(input_object, model):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    logger.info("Starting the prediction process...")
+    test_transform =  transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor() ]
+    )
+    logger.info("Starting to apply Transforms to the input image")
+    input_object=test_transform(input_object)
+    if torch.cuda.is_available():
+        input_object = input_object.cuda() #put data into GPU
+    logger.info("Completed applying Transforms to the input image")
+    model.eval()
     with torch.no_grad():
-        model.eval()
-        out = model(input_data)
-        ps = torch.exp(out)
-    return ps
-
-
-def output_fn(prediction_output, accept='application/json'):
-    logger.info('Serializing the generated output.')
-    classes = {0: 'error', 1: 'no_error'}
-    _, preds = torch.max(prediction_output, 1)
-    results = []
-    for pred in preds:
-        results.append(classes[int(pred)])
-
-    if accept == 'application/json':
-        return json.dumps(results), accept
-    raise Exception(f'Requested unsupported ContentType in Accept:{accept}')
-
-
-
-
-
-
-
-
+        logger.info("Starting the model invokation")
+        prediction = model(input_object.unsqueeze(0))
+    return prediction
