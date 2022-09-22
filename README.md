@@ -47,13 +47,15 @@ the best hyperparameters was:
 ## Training job:
 ![Training Jobs](screens/training_job_comleted.png "Training Jobs")
 
-![Logs metrics during the training process](screens/Logs_metrics_during__training_process.png "Logs metrics during the training process")
+![debugging-output](screens/debugging-output.png "debugging-output")
 
 
 
 ## Debugging and Profiling
 **TODO**: Give an overview of how you performed model debugging and profiling in Sagemaker
 Although I have good experience in working with pytorch but working with sagemaker is a very different experience as i could do many training with different hyperparameters in a single run and with parallel instances
+
+![Logs metrics during the training process](screens/Logs_metrics_during__training_process.png "Logs metrics during the training process")
 
 ### Results
 **TODO**: What are the results/insights did you get by profiling/debugging your model?
