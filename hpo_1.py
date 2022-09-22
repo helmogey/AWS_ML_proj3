@@ -22,7 +22,7 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-def test(model, test_loader, device):
+def test(model, test_loader, criterion, device):
     '''
     TODO: Complete this function that can take a model and a
           testing data loader and will get the test accuray/loss of the model
@@ -37,7 +37,8 @@ def test(model, test_loader, device):
             data = data.to(device)
             target = target.to(device)
             output = model(data)
-            test_loss += F.nll_loss(output, target, reduction="sum").item()  # sum up batch loss
+            loss = criterion(output, target)
+            test_loss += loss.item() * data.size(0)  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
 
@@ -50,6 +51,7 @@ def test(model, test_loader, device):
     )
 
 
+
 def train(model, train_loader, criterion, optimizer, device, epochs=20):
     '''
     TODO: Complete this function that can take a model and
@@ -59,13 +61,18 @@ def train(model, train_loader, criterion, optimizer, device, epochs=20):
     logger.info("starting training...")
     logger.info(device)
     for epoch in range(epochs):
+        running_corrects = 0
+        running_loss = 0.0
         for batch_idx, (data, target) in enumerate(train_loader):
             logger.info(batch_idx)
             optimizer.zero_grad()
             data = data.to(device)
             target = target.to(device)
             output = model(data)
-            loss = F.nll_loss(output, target)
+            loss = criterion(output, target)
+            preds = output.argmax(dim=1, keepdim=True)
+            running_loss += loss.item() * data.size(0)
+            running_corrects += pred.eq(target.view_as(pred)).sum().item()
             loss.backward()
             optimizer.step()
             if batch_idx % 100 == 0:
@@ -76,6 +83,10 @@ def train(model, train_loader, criterion, optimizer, device, epochs=20):
                         len(train_loader.dataset),
                         100.0 * batch_idx / len(train_loader),
                         loss.item()))
+                
+        epoch_loss = running_loss / len(train_loader.dataset)
+        epoch_acc = running_corrects.double() / len(train_loader.dataset)
+        logger.info('Loss: {:.4f} Acc: {:.4f}'.format(epoch_loss, epoch_acc))
     return model
 
 
@@ -130,7 +141,7 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     batch_size = args.batch_size
     logger.info("hany starting...")
-    save_path = args.model_dir + "/Resnet50.pth"
+    save_path = args.model_dir + "/resnet50.pth"
     model = net()
     model.to(device)
     '''
@@ -163,7 +174,7 @@ def main(args):
     '''
     TODO: Test the model to see its accuracy
     '''
-    test(model, test_loader, device)
+    test(model, test_loader, criterion,device)
 
     '''
     TODO: Save the trained model

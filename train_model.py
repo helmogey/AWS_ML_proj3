@@ -11,8 +11,9 @@ import logging
 import argparse
 import sys
 import os
-
-
+import smdebug.pytorch as smd
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 import torch.nn.functional as F
 import torch.utils.data.distributed
 
@@ -21,13 +22,14 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-def test(model, test_loader, device):
+def test(model, test_loader, criterion, device,hook):
     '''
     TODO: Complete this function that can take a model and a
           testing data loader and will get the test accuray/loss of the model
           Remember to include any debugging/profiling hooks that you might need
     '''
     model.eval()
+    hook.set_mode(smd.modes.EVAL)
     logger.info("starting testing ...")
     test_loss = 0
     correct = 0
@@ -36,7 +38,8 @@ def test(model, test_loader, device):
             data = data.to(device)
             target = target.to(device)
             output = model(data)
-            test_loss += F.nll_loss(output, target, reduction="sum").item()  # sum up batch loss
+            loss = criterion(output, target)
+            test_loss += loss.item() * data.size(0)  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
 
@@ -49,7 +52,7 @@ def test(model, test_loader, device):
     )
 
 
-def train(model, train_loader, criterion, optimizer, device, epochs=20):
+def train(model, train_loader, criterion, optimizer, device, hook,epochs=20):
     '''
     TODO: Complete this function that can take a model and
           data loaders for training and will get train the model
@@ -58,12 +61,13 @@ def train(model, train_loader, criterion, optimizer, device, epochs=20):
     logger.info("starting training...")
     logger.info(device)
     for epoch in range(epochs):
+        hook.set_mode(smd.modes.TRAIN)
         for batch_idx, (data, target) in enumerate(train_loader):
             optimizer.zero_grad()
             data = data.to(device)
             target = target.to(device)
             output = model(data)
-            loss = F.nll_loss(output, target)
+            loss = criterion(output, target)
             loss.backward()
             optimizer.step()
             if batch_idx % 100 == 0:
@@ -136,6 +140,9 @@ def main(args):
     '''
     TODO: Create your loss and optimizer
     '''
+    
+
+    
     criterion = nn.CrossEntropyLoss()
     hook.register_loss(criterion)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -145,31 +152,22 @@ def main(args):
     Remember that you will need to set up a way to get training data from S3
     '''
 
-    #     bucket_name = "sagemaker-us-east-1-436014510024"
-
-    #     downloadDirectoryFroms3(bucket_name, "data")
-    #     # region = "us-east-1"
-
-    #     train_dir = "data/train"
-    #     test_dir = "data/test"
 
     train_loader, test_loader = create_data_loaders(args.train_dir, batch_size)
 
-    #     train_loader = create_data_loaders(train_data, batch_size,training_transform)
 
-    #     test_loader = create_data_loaders(test_dir, batch_size,testing_transform)
-
-    model = train(model, train_loader, optimizer, device)
+    model = train(model, train_loader, criterion, optimizer, device,hook)
 
     '''
     TODO: Test the model to see its accuracy
     '''
-    test(model, test_loader, criterion, device)
+    test(model, test_loader, criterion, device,hook)
 
     '''
     TODO: Save the trained model
     '''
-    torch.save(model, save_path)
+#     torch.save(model, save_path)
+    torch.save(model.state_dict(), save_path)
 
 
 if __name__ == '__main__':
@@ -190,7 +188,7 @@ if __name__ == '__main__':
     )
 
     parser.add_argument("--model_dir", type=str, default=os.environ["SM_MODEL_DIR"])
-    parser.add_argument("--train_dir", type=str, default=os.environ["SM_CHANNEL_TRAINING"])
+    parser.add_argument("--train_dir", type=str, default=os.environ["SM_CHANNEL_TRAIN"])
     # parser.add_argument("--test_dir", type=str, default=os.environ["SM_CHANNEL_TESTING"])
 
     args = parser.parse_args()
